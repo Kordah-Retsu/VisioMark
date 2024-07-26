@@ -1,4 +1,4 @@
-import { createContext, useEffect, useState } from 'react';
+import { createContext, useEffect, useState, ReactNode, Dispatch, SetStateAction } from 'react';
 
 type ResponseData = {
   file_name: string;
@@ -6,6 +6,14 @@ type ResponseData = {
   score: number;
   'index number': string;
 }[];
+
+type UserDetails = {
+  id: string;
+  name: string;
+  email: string;
+  picture: string;
+  access_token: string;
+} | null;
 
 export function usePersistentState<T>(key: string, initialState: T) {
   const [state, setState] = useState<T>(() => {
@@ -22,9 +30,17 @@ export function usePersistentState<T>(key: string, initialState: T) {
 
 interface IAppContext {
   responseData: ResponseData;
-  setResponseData: React.Dispatch<React.SetStateAction<ResponseData>>;
+  setResponseData: Dispatch<SetStateAction<ResponseData>>;
   forPreview: boolean;
-  setForPreview: React.Dispatch<React.SetStateAction<boolean>>;
+  setForPreview: Dispatch<SetStateAction<boolean>>;
+  fileName: string;
+  setFileName: Dispatch<SetStateAction<string>>;
+  correct: number;
+  setCorrect: Dispatch<SetStateAction<number>>;
+  incorrect: number;
+  setIncorrect: Dispatch<SetStateAction<number>>;
+  userDetails: UserDetails;
+  setUserDetails: Dispatch<SetStateAction<UserDetails>>;
 }
 
 export const appContext = createContext<IAppContext>({
@@ -32,21 +48,39 @@ export const appContext = createContext<IAppContext>({
   setResponseData: () => {},
   forPreview: false,
   setForPreview: () => {},
+  fileName: '',
+  setFileName: () => {},
+  correct: 1,
+  setCorrect: () => {},
+  incorrect: 0,
+  setIncorrect: () => {},
+  userDetails: null,
+  setUserDetails: () => {},
 });
 
-const AppProvider = ({ children }: { children: React.ReactNode }) => {
-  const [responseData, setResponseData] = usePersistentState<ResponseData>(
-    'responseData',
-    []
-  );
+const AppProvider = ({ children }: { children: ReactNode }) => {
+  const [responseData, setResponseData] = usePersistentState<ResponseData>('responseData', []);
   const [forPreview, setForPreview] = useState(false);
+  const [fileName, setFileName] = usePersistentState<string>('fileName', '');
+  const [correct, setCorrect] = useState<number>(1);
+  const [incorrect, setIncorrect] = useState<number>(0);
+  const [userDetails, setUserDetails] = usePersistentState<UserDetails>('userDetails', null);
 
   const value = {
     responseData,
     setResponseData,
     forPreview,
     setForPreview,
+    fileName,
+    setFileName,
+    correct,
+    setCorrect,
+    incorrect,
+    setIncorrect,
+    userDetails,
+    setUserDetails,
   };
+
   return <appContext.Provider value={value}>{children}</appContext.Provider>;
 };
 

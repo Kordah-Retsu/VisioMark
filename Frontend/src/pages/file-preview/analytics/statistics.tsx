@@ -1,46 +1,58 @@
+import React, { useContext } from 'react';
 import useStatistics from '../hooks/useStatistics';
 import Layout from '../../common/components/Layout';
-
 import { StatsGrid } from './components/StatGrid';
 import ScoreChart from './components/ScoreChart';
 import { Badge, ScrollArea, Text } from '@mantine/core';
 import { StatsSegments } from './components/StatsWithSegment';
 import styled from 'styled-components';
+import { THEME } from '../../../appTheme';
+import { appContext } from '../../../utils/Context';
 
 const Statistics = () => {
-  const { summaryData, scores, a, numberOfQuestions, numberOfStudents } =
-    useStatistics();
+  const { summaryData, scores, a, numberOfQuestions, numberOfStudents } = useStatistics();
+  const { fileName } = useContext(appContext);
+
+  // Remove department name and file extension from file name
+  const fileTitle = fileName.split('_')[0].toUpperCase();
+
   return (
     <Layout>
       <div
         style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: '1rem',
+          gap: '0.5rem',
           height: 'calc(100% - 70px)',
         }}
       >
         <TitleStyle>
           <Text
-            variant="gradient"
-            gradient={{ from: '#ffff', to: 'cyan', deg: 45 }}
-            sx={{ fontFamily: 'Greycliff CF, sans-serif' }}
+            sx={{ fontFamily: 'Greycliff CF, sans-serif', color: `${THEME.colors.text.primary}` }}
             ta="left"
-            fz="2rem"
+            fz="1rem"
             fw={700}
           >
-            STATISTICS
+            {fileTitle} Summary
           </Text>
           <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
             <Badge
-              variant="gradient"
-              gradient={{ from: '#127474', to: '#ec69a6', deg: 35 }}
+              sx={{
+                background: 'transparent',  
+                color: `${THEME.colors.text.primary}`,
+                padding: '1rem',
+                border: `1px dashed ${THEME.colors.text.primary}`
+              }}
             >
               {numberOfStudents} sheets
             </Badge>
             <Badge
-              variant="gradient"
-              gradient={{ from: '#ed6ea0', to: '#ec8c69', deg: 35 }}
+              sx={{
+                background: 'transparent',  
+                color: `${THEME.colors.text.primary}`,
+                padding: '1rem',
+                border: `1px dashed ${THEME.colors.text.primary}`
+              }}
             >
               {numberOfQuestions} Questions
             </Badge>
@@ -48,22 +60,27 @@ const Statistics = () => {
         </TitleStyle>
         <ScrollArea
           style={{
-            padding: '10px 15px 10px 0',
+            padding: '10px 0px 10px 0',
           }}
         >
           <div>
             <StatsGrid data={summaryData} />
-            <Text
-              variant="gradient"
-              gradient={{ from: '#ffff', to: 'cyan', deg: 45 }}
-              sx={{ fontFamily: 'Greycliff CF, sans-serif' }}
-              ta="left"
-              fz="2rem"
-              fw={700}
-            >
-              Score Visualization
-            </Text>
-            <ScoreChart scores={scores} />
+            <div style={{
+              marginTop: '1rem',
+              border: `1px solid ${THEME.colors.background.jet}`,
+              borderRadius: '10px',
+              padding: '2rem'
+            }}>
+              <Text
+                sx={{ fontFamily: 'Greycliff CF, sans-serif', color: `${THEME.colors.text.primary}`, paddingLeft: '3.5rem', paddingBottom: '0.5rem' }}
+                ta="left"
+                fz="1rem"
+                fw={700}
+              >
+                Score Visualization
+              </Text>
+              <ScoreChart scores={scores} />
+            </div>
             <StatsSegments data={a.data} diff={a.diff} total={a.total} />
           </div>
         </ScrollArea>

@@ -1,12 +1,14 @@
 export interface ITableDataProps {
-  file_name: string;
+  'index number': string;
   predictions: string;
   score: number;
-  'index number': string;
+  file_name: string;
+  exceptions?: number; // Add this line
 }
 
 export interface TableSortProps {
-  data: ITableDataProps[];
+  tdata: ITableDataProps[];
+  csv_file_name: string
 }
 
 export interface ThProps {

@@ -1,33 +1,82 @@
 import { useContext, useState } from 'react';
 import { appContext } from './Context';
-import { BaseDirectory, readTextFile, removeFile } from '@tauri-apps/api/fs';
+import { BaseDirectory, createDir, exists, readDir, readTextFile, removeDir, removeFile, writeTextFile } from '@tauri-apps/api/fs';
 import { ITableDataProps } from '../pages/common/Table/types';
+import { MarkingSchemeType, MetadataType } from '../pages/common/components/types';
+import { IStudentDataProps, ReadCSVFileProps } from './type';
+
+
+export const ensureDirectoriesExist = async (userId: string | undefined) => {
+  if (!userId) {
+    throw new Error('User ID is required to ensure directories exist.');
+  }
+
+  // Define the base paths
+  const visioMarkPath = 'VisioMark';
+  const userPath = `VisioMark/${userId}`;
+  const resultPath = `VisioMark/${userId}/Result`;
+
+  // Check and create VisioMark directory if it does not exist
+  const visioMarkExists = await exists(visioMarkPath, {
+    dir: BaseDirectory.Document,
+  });
+  if (!visioMarkExists) {
+    await createDir(visioMarkPath, { dir: BaseDirectory.Document, recursive: true });
+  }
+
+  // Check and create user-specific directory if it does not exist
+  const userDirExists = await exists(userPath, {
+    dir: BaseDirectory.Document,
+  });
+  if (!userDirExists) {
+    await createDir(userPath, { dir: BaseDirectory.Document, recursive: true });
+  }
+
+  // Check and create Result directory for the user if it does not exist
+  const resultExists = await exists(resultPath, {
+    dir: BaseDirectory.Document,
+  });
+  if (!resultExists) {
+    await createDir(resultPath, { dir: BaseDirectory.Document, recursive: true });
+  }
+};
+
+export default ensureDirectoriesExist;
+
 
 export const readCSVFile = async ({
+  userId,
   name_of_file,
-}: {
-  name_of_file?: string;
-}) => {
+}: ReadCSVFileProps) => {
+  if (!userId) {
+    throw new Error('User ID is required to read CSV file.');
+  }
+
+  if (!name_of_file) {
+    throw new Error('File name is required to read CSV file.');
+  }
+
   try {
-    const result = await readTextFile(`visioMark\\${name_of_file}`, {
+    const result = await readTextFile(`VisioMark/${userId}/Result/${name_of_file}`, {
       dir: BaseDirectory.Document,
     });
     const csvData = result.trim().split('\n');
 
-      // Remove the first row (headers)
-      csvData.shift();
-      
+    // Remove the first row (headers)
+    csvData.shift();
+
     const data = csvData.map(row => {
       const rowData = row.split(',');
       const item = {
         file_name: rowData[0],
-        predictions: rowData.slice(1, -2).join(',').replace(/^"(.*)"$/, '$1'), // Joining predictions separated by commas and remove qoute around it.
+        predictions: rowData.slice(1, -2).join(',').replace(/^"(.*)"$/, '$1'), // Joining predictions separated by commas and remove quote around it.
         score: Number(rowData[rowData.length - 2]), // Taking the second last element as score
         'index number': rowData[rowData.length - 1].trim(), // Trimming whitespace
       };
       return item;
     });
-console.log(data)
+
+    console.log(data);
     return data;
   } catch (error) {
     console.log(error);
@@ -35,14 +84,18 @@ console.log(data)
   }
 };
 
-export const readMetadataFile = async (name_of_file?: string) => {
+
+export const getMetadata = async ({
+  userId,
+  name_of_file,
+}: ReadCSVFileProps): Promise<MetadataType | null> => {
   try {
     if (!name_of_file) {
       throw new Error('File name is required');
     }
 
     // Read metadata CSV file
-    const metadataResult = await readTextFile(`visioMark\\metadata.csv`, {
+    const metadataResult = await readTextFile(`VisioMark\\${userId}\\result\\metadata.csv`, {
       dir: BaseDirectory.Document,
     });
 
@@ -51,41 +104,213 @@ export const readMetadataFile = async (name_of_file?: string) => {
     // Remove the first row (headers)
     metadataCsvData.shift();
 
-    // Parse metadata CSV data
-    const metadataData = metadataCsvData.map((row) => {
-      const rowData = row.split(',');
-      const item = {
-        file_name: rowData[0],
+    // Function to split CSV row correctly
+    const splitCsvRow = (row: string) => {
+      const result = [];
+      let inQuotes = false;
+      let field = '';
+  
+      for (let char of row) {
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          result.push(field);
+          field = '';
+        } else {
+          field += char;
+        }
+      }
+      result.push(field);
+      return result;
+    };
+
+    const metadataData: MetadataType[] = metadataCsvData.map((row) => {
+      const rowData = splitCsvRow(row);
+      let scheme: { [key: string]: any } = {};
+      try {
+        // Ensure the string is properly formatted as JSON
+        const jsonStr = rowData[6]
+          .replace(/'/g, '"') // Replace single quotes with double quotes
+          .replace(/\bFalse\b/g, 'false') // Replace False with false
+          .replace(/\bTrue\b/g, 'true'); // Replace True with true
+        scheme = JSON.parse(jsonStr);
+      } catch (error) {
+        console.error('Error parsing marking scheme:', error);
+        console.error('Row data causing error:', rowData[6]);
+      }
+
+      // Convert scheme to MarkingSchemeType format
+      const marking_scheme: MarkingSchemeType = {};
+      for (const key in scheme) {
+        if (scheme.hasOwnProperty(key)) {
+          const numKey = parseInt(key, 10);
+          if (!isNaN(numKey)) {
+            marking_scheme[numKey] = scheme[key];
+          } else {
+            console.warn(`Invalid key for marking scheme: ${key}`);
+          }
+        }
+      }
+      console.log(marking_scheme)
+      const item: MetadataType = {
+        name_of_file: rowData[0],
         academic_year: rowData[1],
-        createdAt: rowData[2].trim(),
+        course_code: rowData[2],
+        department_code: rowData[3],
+        createdAt: new Date(rowData[4].trim()), // Convert to Date object
+        image_dir: rowData[5],
+        marking_scheme,
       };
       return item;
     });
 
     // Find the metadata corresponding to the file name
-    const metadata = metadataData.find((metadataItem) => metadataItem.file_name === name_of_file);
-
-    return metadata;
+    const metadata = metadataData.find((metadataItem) => metadataItem.name_of_file === name_of_file);
+    return metadata || null; // Return null if metadata is not found
   } catch (error) {
     console.log(error);
-    return;
+    return null;
   }
 };
 
-export const deleteCSVFile = async ({
-  name_of_file,
-}: {
-  name_of_file?: string;
-}) => {
+
+
+const deleteImageDir = async ({ userId, name_of_file }: ReadCSVFileProps) => {
   try {
-    await removeFile(`visioMark\\${name_of_file}`, {
+    if (!name_of_file) {
+      throw new Error('File name is required');
+    }
+
+    const metadata = await getMetadata({ userId, name_of_file });
+    if (metadata && metadata.image_dir) {
+      const imageDirPath = `VisioMark\\${userId}\\exam_sheets\\${metadata.image_dir}`;
+
+      try {
+        // Read directory contents
+        const entries = await readDir(imageDirPath, { dir: BaseDirectory.Document, recursive: true });
+        // Remove each file in the directory
+        for (const entry of entries) {
+          if (entry.children) {
+            for (const child of entry.children) {
+              await removeFile(`${imageDirPath}\\${child.name}`, { dir: BaseDirectory.Document });
+            }
+          } else {
+            await removeFile(`${imageDirPath}\\${entry.name}`, { dir: BaseDirectory.Document });
+          }
+        }
+        // Remove the directory itself
+        await removeDir(imageDirPath, { dir: BaseDirectory.Document });
+        console.log('Image directory deleted successfully.');
+      } catch (removeError) {
+        console.error(`Error deleting image directory at ${imageDirPath}:`, removeError);
+        console.error(`Full error details:`, removeError);
+      }
+    } else {
+      console.log('No image directory metadata found.');
+    }
+  } catch (error) {
+    console.error(`Error retrieving metadata for ${name_of_file}:`, error);
+    console.error(`Full error details:`, error);
+  }
+};
+
+
+export const deleteCSVFile = async ({ userId, name_of_file }: ReadCSVFileProps) => {
+  try {
+    if (!name_of_file) {
+      throw new Error('File name is required');
+    }
+    
+
+    // Delete CSV file
+    await removeFile(`VisioMark\\${userId}\\result\\${name_of_file}`, {
       dir: BaseDirectory.Document,
     });
-    console.log(`File ${name_of_file} deleted successfully.`);
+
+    // Delete Image_dir
+    await deleteImageDir({ userId, name_of_file });
+
+    // Read metadata file
+    const metadataFilePath = `VisioMark\\${userId}\\result\\metadata.csv`;
+    const metadataContent = await readTextFile(metadataFilePath, {
+      dir: BaseDirectory.Document,
+    });
+
+    // Remove the entry corresponding to the deleted CSV file
+    const updatedMetadata = metadataContent
+      .split('\n')
+      .filter(line => !line.startsWith(name_of_file));
+
+    // Write the updated metadata back to the file
+    await writeTextFile(metadataFilePath, updatedMetadata.join('\n'), {
+      dir: BaseDirectory.Document,
+    });
+
+    // Remove from local storage
+    removeFromLocalStorage(name_of_file);
+
+    // Reload the page
     window.location.reload();
   } catch (error) {
     console.error(`Error deleting file ${name_of_file}:`, error);
   }
+};
+
+export const getFilenamesFromLocalStorage = () => {
+  const getStoredDataAsString = localStorage.getItem('recentFileNames');
+  const getStoredData: Array<string> = getStoredDataAsString
+    ? JSON.parse(getStoredDataAsString)
+    : [];
+  return getStoredData;
+};
+
+export const getTotalExceptions = (data: IStudentDataProps[] | ITableDataProps): number => {
+  if (!Array.isArray(data)) {
+    return 0;
+  }
+
+  let exceptionCount = 0;
+
+  data.forEach(item => {
+    // Check if predictions field exists and is a string
+    if (typeof item.predictions === 'string') {
+      // Split the predictions string by commas and count the occurrences of 'Exceptions'
+      exceptionCount += item.predictions.split(',').filter(prediction => prediction.trim() === 'Exceptions').length;
+    }
+  });
+
+  return exceptionCount;
+};
+
+
+
+
+
+
+
+export const storeToLocalStorage = (fileName: string) => {
+  const getStoredData = getFilenamesFromLocalStorage();
+  getStoredData.unshift(fileName);
+
+  const limitToTen = getStoredData.slice(0, 4);
+  localStorage.setItem('recentFileNames', JSON.stringify(limitToTen));
+
+  return getStoredData;
+};
+
+const removeFromLocalStorage = (fileName: string | undefined) => {
+  if (!fileName) {
+    throw new Error('File name is required');
+  }
+  const getStoredData = getFilenamesFromLocalStorage();
+  const index = getStoredData.indexOf(fileName);
+  if (index !== -1) {
+    getStoredData.splice(index, 1);
+  }
+
+  const limitToTen = getStoredData.slice(0, 4);
+  localStorage.setItem('recentFileNames', JSON.stringify(limitToTen));
+
 };
 
 export function convertToCountedObjects(
@@ -183,6 +408,39 @@ export function calculateDifficultyLevels(
   );
 
   return data;
+}
+
+export function generateAcademicYears() {
+  const currentYear = new Date().getFullYear();
+  const startYear = 2020;
+  const years = [];
+
+  for (let year = startYear; year <= currentYear; year++) {
+      const academicYear = `${year}/${year + 1}`;
+      years.push(academicYear);
+  }
+
+  return years;
+}
+
+export const generateMarkingScheme = (markingScheme: MarkingSchemeType | undefined ): string[] => {
+  const choicesArray: string[] = [];
+  
+  for (const key in markingScheme) {
+    if (markingScheme.hasOwnProperty(key)) {
+      const question = markingScheme[Number(key)];
+      choicesArray[parseInt(key, 10) - 1] = question.choice; // Assuming the keys are 1-based index
+    }
+  }
+  
+  return choicesArray;
+};
+
+function shuffleArray(array: any[]) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
 }
 
 export function generateCourseCodes() {
@@ -987,131 +1245,136 @@ export function generateCourseCodes() {
     });
   });
 
-  return courseCodes;
+  shuffleArray(courseCodes);
+
+  return  courseCodes;
+  ;
 }
 
 // const allCourseCodes = generateCourseCodes();
 
 export function generateDepartmentCode() {
-  const departmentCodes = [
-    101, // Agricultural Economics, Agribusiness and Extension
-    102, // Agricultural Engineering
-    103, // Agriculture
-    201, // Architecture
-    301, // Biochemistry and Biotechnology
-    302, // Civil Engineering
-    303, // Computer Engineering
-    304, // Computer Science
-    305, // Construction Technology and Management
-    306, // Crop and Soil Sciences
-    307, // Electrical and Electronic Engineering
-    308, // Environmental Science
-    309, // Food Science and Technology
-    310, // Geography and Rural Development
-    311, // Geomatic Engineering
-    312, // Horticulture
-    313, // Hospitality and Tourism Management
-    314, // Industrial Art
-    315, // Industrial Mathematics
-    316, // Industrial Physics
-    317, // Landscape Design and Management
-    318, // Materials Engineering
-    319, // Mechanical Engineering
-    320, // Meteorology and Climate Science
-    321, // Natural Resources Management
-    322, // Petrochemical Engineering
-    323, // Petroleum Engineering
-    324, // Physics
-    325, // Publishing Studies
-    326, // Renewable Natural Resources
-    327, // Statistics
-    328, // Surveying and Geoinformatics
-    329, // Textile Design and Technology
-    330, // Urban Roads and Transport Engineering
-    331, // Water Resources Engineering
-    401, // Actuarial Science
-    402, // Banking and Finance
-    403, // Business Administration
-    404, // Human Resource Management
-    405, // International Business
-    406, // Logistics and Supply Chain Management
-    407, // Marketing
-    408, // Management Information Systems
-    409, // Entrepreneurship
-    410, // Estate Management
-    411, // Land Economy
-    412, // Quantity Surveying and Construction Economics
-    413, // Real Estate
-    414, // Telecommunication Engineering
-    415, // Chemical Engineering
-    416, // Chemistry
-    417, // Medical Laboratory Technology
-    418, // Nursing
-    419, // Physics
-    420, // Physiology
-    421, // Sports and Exercise Science
-    422, // Biochemistry
-    423, // Chemistry
-    424, // Geological Engineering
-    425, // Geology
-    426, // Mathematics
-    427, // Petrology
-    428, // Petrophysics
-    429, // Petroleum Geoscience
-    430, // Structural Engineering
-    431, // Telecommunications Engineering
-    432, // Textile Engineering
-    433, // Tourism and Hospitality Management
-    434, // Vehicle Engineering
-    435, // Veterinary Medicine
-    436, // Construction Management
-    437, // Finance
-    438, // Human Resource Development
-    439, // Information Technology
-    440, // Management Studies
-    441, // Marketing
-    442, // Supply Chain Management
-    443, // Land Administration
-    444, // Real Estate Management and Finance
-    445, // Agribusiness Management
-    446, // Agribusiness Management and Finance
-    447, // Landscape Architecture
-    448, // Human Settlement Planning
-    449, // Interior Architecture and Furniture Production
-    450, // Textile Design and Technology
-    451, // Fashion Design
-    452, // Industrial Engineering
-    453, // Water Supply and Environmental Sanitation
-    454, // Water and Environmental Engineering
-    455, // Soil and Water Engineering
-    456, // Rural and Community Development
-    457, // Building Technology
-    458, // Agricultural Engineering
-    459, // Agricultural Biotechnology
-    460, // Forestry
-    461, // Fisheries and Aquaculture Technology
-    462, // Wood Science and Technology
-    463, // Renewable Energy Technologies
-    464, // Dairy and Meat Science and Technology
-    465, // Food Quality Management
-    466, // Food Processing Engineering
-    467, // Seed Science and Technology
-    468, // Post Harvest Technology
-    469, // Industrial Mathematics
-    470, // Pure Mathematics
-    471, // Applied Mathematics
-    472, // Computational Mathematics
-    473, // Statistics
-    474, // Actuarial Science
-    475, // Mathematical Sciences
-    476, // Climate Science and Natural Resource Management
-    477, // Resource Enterprise and Entrepreneurship
-    478, // Land Use Planning
-    479, // Social Forestry and Environmental Governance
-    480, // Watershed Management and Ecohydrology
-    481, // Agroforestry and Environment
-    482, // Climate Change Adaptation and Mitigation
-  ];
+  const departmentCodes : Array<string> = [
+    "010", //Electrical Engineering
+    "050", //Computer Engineering
+    "101", // Agricultural Economics, Agribusiness and Extension
+    "102", // Agricultural Engineering
+    "103", // Agriculture
+    "201", // Architecture
+    "301", // Biochemistry and Biotechnology
+    "302", // Civil Engineering
+    "303", // Computer Engineering
+    "304", // Computer Science
+    "305", // Construction Technology and Management
+    "306", // Crop and Soil Sciences
+    "307", // Electrical and Electronic Engineering
+    "308", // Environmental Science
+    "309", // Food Science and Technology
+    "310", // Geography and Rural Development
+    "311", // Geomatic Engineering
+    "312", // Horticulture
+    "313", // Hospitality and Tourism Management
+    "314", // Industrial Art
+    "315", // Industrial Mathematics
+    "316", // Industrial Physics
+    "317", // Landscape Design and Management
+    "318", // Materials Engineering
+    "319", // Mechanical Engineering
+    "320", // Meteorology and Climate Science
+    "321", // Natural Resources Management
+    "322", // Petrochemical Engineering
+    "323", // Petroleum Engineering
+    "324", // Physics
+    "325", // Publishing Studies
+    "326", // Renewable Natural Resources
+    "327", // Statistics
+    "328", // Surveying and Geoinformatics
+    "329", // Textile Design and Technology
+    "330", // Urban Roads and Transport Engineering
+    "331", // Water Resources Engineering
+    "401", // Actuarial Science
+    "402", // Banking and Finance
+    "403", // Business Administration
+    "404", // Human Resource Management
+    "405", // International Business
+    "406", // Logistics and Supply Chain Management
+    "407", // Marketing
+    "408", // Management Information Systems
+    "409", // Entrepreneurship
+    "410", // Estate Management
+    "411", // Land Economy
+    "412", // Quantity Surveying and Construction Economics
+    "413", // Real Estate
+    "414", // Telecommunication Engineering
+    "415", // Chemical Engineering
+    "416", // Chemistry
+    "417", // Medical Laboratory Technology
+    "418", // Nursing
+    "419", // Physics
+    "420", // Physiology
+    "421", // Sports and Exercise Science
+    "422", // Biochemistry
+    "423", // Chemistry
+    "424", // Geological Engineering
+    "425", // Geology
+    "426", // Mathematics
+    "427", // Petrology
+    "428", // Petrophysics
+    "429", // Petroleum Geoscience
+    "430", // Structural Engineering
+    "431", // Telecommunications Engineering
+    "432", // Textile Engineering
+    "433", // Tourism and Hospitality Management
+    "434", // Vehicle Engineering
+    "435", // Veterinary Medicine
+    "436", // Construction Management
+    "437", // Finance
+    "438", // Human Resource Development
+    "439", // Information Technology
+    "440", // Management Studies
+    "441", // Marketing
+    "442", // Supply Chain Management
+    "443", // Land Administration
+    "444", // Real Estate Management and Finance
+    "445", // Agribusiness Management
+    "446", // Agribusiness Management and Finance
+    "447", // Landscape Architecture
+    "448", // Human Settlement Planning
+    "449", // Interior Architecture and Furniture Production
+    "450", // Textile Design and Technology
+    "451", // Fashion Design
+    "452", // Industrial Engineering
+    "453", // Water Supply and Environmental Sanitation
+    "454", // Water and Environmental Engineering
+    "455", // Soil and Water Engineering
+    "456", // Rural and Community Development
+    "457", // Building Technology
+    "458", // Agricultural Engineering
+    "459", // Agricultural Biotechnology
+    "460", // Forestry
+    "461", // Fisheries and Aquaculture Technology
+    "462", // Wood Science and Technology
+    "463", // Renewable Energy Technologies
+    "464", // Dairy and Meat Science and Technology
+    "465", // Food Quality Management
+    "466", // Food Processing Engineering
+    "467", // Seed Science and Technology
+    "468", // Post Harvest Technology
+    "469", // Industrial Mathematics
+    "470", // Pure Mathematics
+    "471", // Applied Mathematics
+    "472", // Computational Mathematics
+    "473", // Statistics
+    "474", // Actuarial Science
+    "475", // Mathematical Sciences
+    "476", // Climate Science and Natural Resource Management
+    "477", // Resource Enterprise and Entrepreneurship
+    "478", // Land Use Planning
+    "479", // Social Forestry and Environmental Governance
+    "480", // Watershed Management and Ecohydrology
+    "481", // Agroforestry and Environment
+    "482", // Climate Change Adaptation and Mitigation
+];
 
-  return departmentCodes;
+return departmentCodes;
 }

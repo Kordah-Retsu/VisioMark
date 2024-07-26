@@ -1,24 +1,85 @@
 import { Flex, Group, TextInput, Checkbox } from '@mantine/core';
-import { useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import styled from 'styled-components';
 import { THEME } from '../../appTheme';
 
-const MasterKeyPage = ({
-  question_number,
-  all,
-  setAll,
-  index,
-}: {
+import { IAllData } from '../dashboard/types';
+import { appContext } from '../../utils/Context';
+
+interface MasterKeyPageProps {
+  all: IAllData;
+  setAll: React.Dispatch<React.SetStateAction<IAllData>>;
   question_number: number;
-  setAll: React.Dispatch<React.SetStateAction<{}>>;
-  all: { [key: number]: string };
   index: number;
-}) => {
+}
+
+const MasterKeyPage: React.FC<MasterKeyPageProps> = ({ question_number, index, all, setAll }) => {
+  const { correct, incorrect } = useContext(appContext);
+  const initialCorrect = all[question_number]?.correct?.toString() || '';
+  const initialIsBonus = all[question_number]?.isBonus || false;
+  const initialChoice = all[question_number]?.choice || '';
+
+  const [customCorrect, setCustomCorrect] = useState<string>(initialCorrect);
+  const [isBonus, setIsBonus] = useState<boolean>(initialIsBonus);
+  const [selectedChoice, setSelectedChoice] = useState<string>(initialChoice);
   const [clicked, setClicked] = useState(false);
+
+  useEffect(() => {
+    if (!all[question_number]) {
+      setAll((prevState) => ({
+        ...prevState,
+        [question_number]: {
+          correct: correct,
+          incorrect,
+          isBonus,
+          choice: selectedChoice,
+        },
+      }));
+    }
+  }, [all, correct, incorrect, isBonus, question_number, selectedChoice, setAll]);
+
+  const handleCorrectChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value;
+    setCustomCorrect(value);
+    if (value !== '') {
+      const numericValue = Number(value);
+      setAll((prevState) => ({
+        ...prevState,
+        [question_number]: {
+          ...prevState[question_number],
+          correct: numericValue,
+        },
+      }));
+    }
+  };
+
+  const handleBonusChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const checked = event.target.checked;
+    setIsBonus(checked);
+    setAll((prevState) => ({
+      ...prevState,
+      [question_number]: {
+        ...prevState[question_number],
+        isBonus: checked,
+      },
+    }));
+  };
+
+  const handleChoiceClick = (choice: string) => {
+    setSelectedChoice(choice);
+    setAll((prevState) => ({
+      ...prevState,
+      [question_number]: {
+        ...prevState[question_number],
+        choice: choice,
+      },
+    }));
+    setClicked(true);
+  };
 
   return (
     <Flex
-      gap={'sm'}
+      gap={'xl'}
       justify="flex-start"
       align="flex-start"
       direction="row"
@@ -33,57 +94,31 @@ const MasterKeyPage = ({
     >
       <QuestionNumberStyles>{question_number}. </QuestionNumberStyles>
       <Group spacing={'xl'}>
-      <ChoiceStyles
-          clicked={all[question_number] === 'A'}
-          onClick={() => {
-            setAll({ ...all, [question_number]: 'A' });
-            setClicked(!clicked);
+        <div
+          style={{
+            padding: '4px',
+            borderRadius: '50px',
+            display: 'flex',
+            gap: '4px'
           }}
         >
-          A
-        </ChoiceStyles>
-        <ChoiceStyles
-          clicked={all[question_number] === 'B'}
-          onClick={() => {
-            setAll({ ...all, [question_number]: 'B' });
-            setClicked(true);
-          }}
-        >
-          B
-        </ChoiceStyles>
-        <ChoiceStyles
-          clicked={all[question_number] === 'C'}
-          onClick={() => {
-            setAll({ ...all, [question_number]: 'C' });
-            setClicked(true);
-          }}
-        >
-          C
-        </ChoiceStyles>
-        <ChoiceStyles
-          clicked={all[question_number] === 'D'}
-          onClick={() => {
-            setAll({ ...all, [question_number]: 'D' });
-            setClicked(true);
-          }}
-        >
-          D
-        </ChoiceStyles>
-        <ChoiceStyles
-          clicked={all[question_number] === 'E'}
-          onClick={() => {
-            setAll({ ...all, [question_number]: 'E' });
-            setClicked(true);
-          }}
-        >
-          E
-        </ChoiceStyles>
-
+          {['A', 'B', 'C', 'D', 'E'].map((choice) => (
+            <ChoiceStyles
+              key={choice}
+              clicked={selectedChoice === choice}
+              onClick={() => handleChoiceClick(choice)}
+            >
+              {choice}
+            </ChoiceStyles>
+          ))}
+        </div>
+      </Group>
+      <Group spacing='xl' style={{ paddingLeft: '2rem' }}>
         <TextInput
           type="number"
           maxLength={1}
-          value={1}
-          
+          value={customCorrect}
+          onChange={handleCorrectChange}
           styles={{
             input: {
               background: 'transparent',
@@ -96,24 +131,23 @@ const MasterKeyPage = ({
               justifyContent: 'center',
               borderRadius: '50%',
               '&:focus': {
-                  borderColor:'#fff'
-              }
+                borderColor: '#fff',
+              },
             },
-
             wrapper: {
               margin: '10px 0',
             },
           }}
         />
-
-        {/* Checkbox for bonus */}
         <Checkbox
           label="Bonus"
+          checked={isBonus}
+          onChange={handleBonusChange}
           sx={{
             input: {
               background: 'transparent',
               border: `1px solid ${THEME.colors.background.jet}`,
-            }
+            },
           }}
         />
       </Group>
@@ -123,24 +157,19 @@ const MasterKeyPage = ({
 
 export default MasterKeyPage;
 
-const ChoiceStyles = styled.div<{
-  clicked?: boolean;
-  index?: number;
-  question_number?: number;
-  onClick?: () => void;
-}>`
-  background: ${({ clicked }) =>
-    clicked ? THEME.colors.button.primary : THEME.colors.button.midnight_green};
-  width: 3rem;
+const ChoiceStyles = styled.div<{ clicked?: boolean }>`
+  background: ${({ clicked }) => (clicked ? THEME.colors.background.primary : 'transparent')};
+  width: 5rem;
   height: 3rem;
   display: flex;
-  border-radius: 50%;
+  border-radius: 100px;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  color: #fff;
+  border: 1px solid ${THEME.colors.background.primary};
 `;
 
 const QuestionNumberStyles = styled.p`
   font-size: 1.5rem;
 `;
-

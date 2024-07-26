@@ -5,36 +5,25 @@ import { useContext, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { appContext } from '../../../utils/Context';
 import { ITableDataProps } from '../../common/Table/types';
-import { THEME } from '../../../appTheme';
 import { schema } from '../schema';
 import { z } from 'zod';
 import { dialog } from '@tauri-apps/api';
+import { getFilenamesFromLocalStorage, storeToLocalStorage } from '../../../utils/helper';
+import { IAllData } from '../types';
 
 const useDashboard = () => {
-  const [all, setAll] = useState<{ [key: number]: string }>({});
+  // State management
+  const [all, setAll] = useState<IAllData>({});
   const [error, setError] = useState<boolean>(false);
   const [selectedFolder, setSelectedFolder] = useState<string | string[]>('');
+  const [exceptionCount, setExceptionCount] = useState<number>(0);
+  // Convert selected folder path to a consistent format
   const folderPath = selectedFolder.toString().replace(/\\/g, '/');
-  const navigate = useNavigate();
-  const { setResponseData, setForPreview } = useContext(appContext);
+  
+  // Context state management
+  const { setResponseData, setForPreview, userDetails } = useContext(appContext);
 
-  const getFilenamesFromLocalStorage = () => {
-    const getStoredDataAsString = localStorage.getItem('recentFileNames');
-    const getStoredData: Array<string> = getStoredDataAsString
-      ? JSON.parse(getStoredDataAsString)
-      : [];
-    return getStoredData;
-  };
-  const storeToLocalStorage = (fileName: string) => {
-    const getStoredData = getFilenamesFromLocalStorage();
-    getStoredData.unshift(fileName);
-
-    const limitToTen = getStoredData.slice(0, 10);
-    localStorage.setItem('recentFileNames', JSON.stringify(limitToTen));
-
-    return getStoredData;
-  };
-
+  // Handle folder selection
   const handleFolderSelect = async () => {
     const result = await dialog.open({
       multiple: false,
@@ -47,40 +36,49 @@ const useDashboard = () => {
     }
   };
 
+  console.log(all);
+
+  // Mutation using react-query
   const mutate = useMutation({
     mutationFn: async (data: { [key: string]: string }) => {
       try {
+        // Create headers object conditionally
+        const headers: HeadersInit = {
+          'Content-Type': 'application/json',
+        };
+        
+        if (userDetails?.id) {
+          headers['User-ID'] = userDetails.id;
+        }
+
         const response = await fetch(`${Constants.API_URL}`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers,
           body: JSON.stringify({
             image_dir: folderPath,
             no_of_questions: data['number_of_questions'],
             course_code: data['course_code'],
+            department_code: data['department_code'],
             master_key: { ...all },
           }),
         });
-
 
         if (!response.ok) {
           throw new Error('Network response was not ok.');
         }
 
         const responseData: [string, ITableDataProps[]] = await response.json();
-
         if (response.ok) {
-          // close();
-          
           storeToLocalStorage(responseData[0]);
           setResponseData(responseData[1]);
           setForPreview(true);
+
           AppAlert({
             title: 'Success',
-            color: `${THEME.colors.button.primary}`,
+            color: 'teal',
             message: 'Marked Successfully!! 😁',
           });
+
           window.location.reload();
         }
 
@@ -91,15 +89,19 @@ const useDashboard = () => {
       }
     },
   });
+
   const validateData = (data: any) => {
     try {
       schema.parse(data);
       setError(false);
+      return true; // Return true if validation passes
     } catch (error) {
       if (error instanceof z.ZodError) {
         setError(true);
         console.error('Validation error:', error);
+        alert('Invalid Or Empty Field(s), Please make sure all fields are valid or not empty');
       }
+      return false; // Return false if validation fails
     }
   };
 
@@ -109,6 +111,7 @@ const useDashboard = () => {
     handleFolderSelect,
     mutate,
     selectedFolder,
+    error,
     validateData,
     getFilenamesFromLocalStorage,
   };

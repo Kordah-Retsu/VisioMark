@@ -5,9 +5,14 @@ import SignUp from './pages/auth-pages/sign-up';
 import Dashboard from './pages/dashboard/dashboard';
 import AllFiles from './pages/all-files/AllFiles';
 import Settings from './pages/settings/Settings';
-import SignIn from './pages/auth-pages/sign-in';
+import SignIn from './pages/auth-pages/desktop-sign-in';
+import BrowserLogin from './pages/auth-pages/browser-sign-in';
 import Preview from './pages/file-preview';
 import Statistics from './pages/file-preview/analytics/statistics';
+import BrowserSignup from './pages/auth-pages/browser-sign-up';
+
+
+
 
 const ROUTE = Constants.PATHS;
 
@@ -17,8 +22,8 @@ const routing = createBrowserRouter([
     element: <Dashboard />,
   },
   {
-    path: ROUTE.signUp,
-    element: <SignUp />,
+    path: ROUTE.browserSignup,
+    element: <BrowserSignup />,
   },
   {
     path: ROUTE.allfiles,
@@ -29,13 +34,20 @@ const routing = createBrowserRouter([
     element: <Settings />,
   },
   {
-    path: ROUTE.settings,
-    element: <Settings />,
+    path: ROUTE.signIn,
+    element: <SignIn/>,
   },
   {
-    path: ROUTE.signIn,
-    element: <SignIn />,
+    path: ROUTE.browserLogin,
+    element: <BrowserLogin />,
   },
+  {
+    path: ROUTE.browserSignup,
+    element: <BrowserSignup />,
+  },
+
+  
+
   {
     path: ROUTE.preview,
     element: <Preview />,

@@ -16,7 +16,16 @@ import { BiChevronDown, BiChevronUp, BiSearch } from 'react-icons/bi';
 import { HiSelector } from 'react-icons/hi';
 import styled from 'styled-components';
 import { appContext } from '../../../utils/Context';
-import { isString } from '../../../utils/helper';
+import { getMetadata, isString } from '../../../utils/helper';
+import { useMantineTheme } from '@mantine/core';
+import { THEME } from '../../../appTheme';
+import { FaEye } from 'react-icons/fa6';
+import { useDisclosure } from '@mantine/hooks';
+import ModalComp from '../Modal/Modal';
+import ModalPreview from '../../file-preview/ModalPreview';
+import { MetadataType } from '../components/types';
+import AppAlert from '../notification/alert';
+import { FiCheck } from 'react-icons/fi';
 
 const useStyles = createStyles((theme) => ({
   th: {
@@ -27,12 +36,10 @@ const useStyles = createStyles((theme) => ({
   control: {
     width: '100%',
     padding: `${theme.spacing.xs} ${theme.spacing.md}`,
-
+    color: '#fff',
     '&:hover': {
-      backgroundColor:
-        theme.colorScheme === 'dark'
-          ? theme.colors.dark[6]
-          : theme.colors.gray[0],
+      backgroundColor: 'transparent',
+      color: '#fff',
     },
   },
 
@@ -44,8 +51,7 @@ const useStyles = createStyles((theme) => ({
   header: {
     position: 'sticky',
     top: 0,
-    backgroundColor:
-      theme.colorScheme === 'dark' ? theme.colors.dark[7] : theme.white,
+    backgroundColor: THEME.colors.background.jet,
     transition: 'box-shadow 150ms ease',
 
     '&::after': {
@@ -54,11 +60,6 @@ const useStyles = createStyles((theme) => ({
       left: 0,
       right: 0,
       bottom: 0,
-      borderBottom: `${rem(1)} solid ${
-        theme.colorScheme === 'dark'
-          ? theme.colors.dark[3]
-          : theme.colors.gray[2]
-      }`,
     },
   },
 
@@ -95,7 +96,7 @@ function filterData(data: ITableDataProps[], search: string) {
       if (isString(value)) {
         return value.toLowerCase().includes(query);
       }
-      return value.toString().includes(query);
+      return value?.toString().includes(query);
     })
   );
 }
@@ -121,19 +122,21 @@ function sortData(
 
       if (isString(valueA) && isString(valueB)) {
         if (payload.reversed) {
-          return valueB.localeCompare(valueA);
+          return valueB?.localeCompare(valueA);
         }
-        return valueA.localeCompare(valueB);
+        return valueA?.localeCompare(valueB);
       }
 
       if (typeof valueA === typeof valueB) {
-        return payload.reversed
+        if(valueA !== undefined && valueB !== undefined){
+          return payload.reversed
           ? valueB > valueA
             ? -1
             : 1
           : valueA > valueB
           ? -1
           : 1;
+        }
       }
 
       return 0;
@@ -142,14 +145,37 @@ function sortData(
   );
 }
 
-function GenericTable({ data }: TableSortProps) {
+function calculateExceptions(predictions: string) {
+  return (predictions.match(/Exception/g) || []).length;
+}
+
+function GenericTable({ tdata, csv_file_name }: TableSortProps) {
   const { classes, cx } = useStyles();
   const [scrolled, setScrolled] = useState(false);
-
+  const theme = useMantineTheme();
   const [search, setSearch] = useState('');
-  const [sortedData, setSortedData] = useState(data);
   const [sortBy, setSortBy] = useState<keyof ITableDataProps | null>(null);
   const [reverseSortDirection, setReverseSortDirection] = useState(false);
+  const [metadata, setMetadata] = useState<MetadataType | null>(null);
+  const [activeModalRow, setActiveModalRow] = useState<string | null>(null); // Track active modal row
+  const [data, setData] = useState<ITableDataProps[]>(tdata);
+  const [sortedData, setSortedData] = useState(data); // Initialize sortedData with data
+  const { userDetails } = useContext(appContext);
+  useEffect(() => {
+    // Update sortedData whenever data changes
+    setSortedData(
+      sortData(data, { sortBy, reversed: reverseSortDirection, search })
+    );
+  }, [data, sortBy, reverseSortDirection, search]);
+
+  const fetchMetaData = async () => {
+    try {
+      const data = await getMetadata({ userId: userDetails?.id, name_of_file: csv_file_name }); // Fetch metadata
+      setMetadata(data);
+    } catch (error) {
+      console.error('Error fetching metadata:', error);
+    }
+  };
 
   const setSorting = (field: keyof ITableDataProps) => {
     const reversed = field === sortBy ? !reverseSortDirection : false;
@@ -166,13 +192,75 @@ function GenericTable({ data }: TableSortProps) {
     );
   };
 
+  const handlePreview = (fileName: string) => {
+    setActiveModalRow((prev) => (prev === fileName ? null : fileName)); // Toggle modal for the row
+    fetchMetaData();
+  };
+
+  const handleCloseModal = () => {
+    setActiveModalRow(null);
+  };
+
+  const handleUpdateData = (updatedRow: ITableDataProps[]) => {
+    setData(updatedRow);
+  };
+
   const rows = sortedData.map((row) => {
+    const exceptions = calculateExceptions(row.predictions);
     return (
       <tr key={row.file_name}>
-        <td>{row.file_name}</td>
-        <PreictionDataRow>{row.predictions}</PreictionDataRow>
-        <td>{row.score}</td>
         <td>{row['index number']}</td>
+        <PreictionDataRow>{row.predictions}</PreictionDataRow>
+        <td style={{ paddingLeft: '4rem' }}>
+          <Text
+            style={{
+              background: THEME.colors.background.jet,
+              padding: '0.4rem',
+              width: '6rem',
+              textAlign: 'center',
+              borderRadius: '4rem',
+            }}
+          >
+            {row.score}
+          </Text>
+        </td>
+        <td>
+          <Text
+            sx={{
+              background: `${exceptions === 0 ? THEME.colors.background.primary : 'red'}`,
+              padding: '0.4rem',
+              width: '2rem',
+              textAlign: 'center',
+              borderRadius: '2rem',   
+              marginLeft: '3rem',
+            }}
+          >
+            {exceptions}
+          </Text>
+        </td>
+
+        <td>
+          <FaEye
+            size={20}
+            style={{ cursor: 'pointer',  marginLeft: '3rem'  }}
+            color={THEME.colors.text.primary}
+            onClick={() => {
+              handlePreview(row.file_name);
+              fetchMetaData();
+            }}
+          />
+          {activeModalRow === row.file_name && (
+            <ModalPreview
+              open={true}
+              close={handleCloseModal}
+              data={row}
+              updateData={handleUpdateData}
+              image_dir={metadata?.image_dir}
+              marking_scheme={metadata?.marking_scheme}
+              csv_file={csv_file_name}
+            />
+          )}
+        </td>
       </tr>
     );
   });
@@ -182,48 +270,96 @@ function GenericTable({ data }: TableSortProps) {
       h={'calc(100% - 70px)'}
       onScrollPositionChange={({ y }) => setScrolled(y !== 0)}
     >
-      <TextInput
-        placeholder="Search by any field"
-        mb="md"
-        icon={<BiSearch size="0.9rem" />}
-        value={search}
-        onChange={handleSearchChange}
-      />
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          paddingBottom: '1rem',
+        }}
+      >
+        <Text
+          sx={{
+            fontFamily: 'Greycliff CF, sans-serif',
+            color: `${THEME.colors.text.primary}`,
+          }}
+          ta="left"
+          fz="1rem"
+          fw={700}
+        >
+          {csv_file_name.split('_')[0].toUpperCase()}
+        </Text>
+        <TextInput
+          placeholder="Search by index no."
+          icon={<BiSearch size="1.2rem" color={THEME.colors.background.jet} />}
+          value={search}
+          onChange={handleSearchChange}
+          sx={{
+            input: {
+              background: 'transparent',
+              height: '3rem',
+              borderRadius: '0.6rem',
+              width: '30rem',
+              color: theme.colors.gray[0],
+              border: `1px solid ${THEME.colors.background.jet}`,
+              '&:focus': {
+                border: `0.5px solid ${theme.colors.gray[6]}`,
+                outline: 'none',
+              },
+              '::placeholder': {
+                color: theme.colors.gray[8],
+              },
+            },
+          }}
+        />
+      </div>
       <Table
         horizontalSpacing="md"
-        verticalSpacing="xs"
+        verticalSpacing="md"
         miw={700}
-        sx={{ tableLayout: 'fixed', backgroundColor: 'aliceblue' }}
+        sx={{
+          tableLayout: 'fixed',
+          backgroundColor: 'transparents',
+          color: '#fff',
+          border: `1px solid ${theme.colors.gray[8]}`,
+        }}
       >
         <thead className={cx(classes.header, { [classes.scrolled]: scrolled })}>
           <tr>
-            <Th
-              sorted={sortBy === 'file_name'}
-              reversed={reverseSortDirection}
-              onSort={() => setSorting('file_name')}
-            >
-              File name
-            </Th>
-            <Th
-              sorted={sortBy === 'predictions'}
-              reversed={reverseSortDirection}
-              onSort={() => setSorting('predictions')}
-            >
-              Predictions
-            </Th>
-            <Th
-              sorted={sortBy === 'score'}
-              reversed={reverseSortDirection}
-              onSort={() => setSorting('score')}
-            >
-              Score
-            </Th>
             <Th
               sorted={sortBy === 'index number'}
               reversed={reverseSortDirection}
               onSort={() => setSorting('index number')}
             >
               Index Number
+            </Th>
+            <Th
+              sorted={sortBy === 'predictions'}
+              reversed={reverseSortDirection}
+              onSort={() => setSorting('predictions')}
+            >
+              Student Answers
+            </Th>
+            <Th
+              sorted={sortBy === 'score'}
+              reversed={reverseSortDirection}
+              onSort={() => setSorting('score')}
+            >
+              <Text style={{ paddingLeft: '3rem' }}>Score</Text>
+            </Th>
+            <Th
+              sorted={sortBy === 'exceptions'}
+              reversed={reverseSortDirection}
+              onSort={() => setSorting('exceptions')}
+            >
+              <Text style={{ paddingLeft: '2rem' }}>Exceptions</Text>
+            </Th>
+            <Th
+              sorted={sortBy === 'file_name'}
+              reversed={reverseSortDirection}
+              onSort={() => setSorting('file_name')}
+            >
+              <Text style={{ paddingLeft: '2rem' }}>Preview</Text>
             </Th>
           </tr>
         </thead>
@@ -250,4 +386,25 @@ export default GenericTable;
 const PreictionDataRow = styled.td`
   white-space: nowrap;
   overflow-x: auto;
+
+  &::-webkit-scrollbar {
+    width: 10px; /* Width of the scrollbar */
+    height: 9px;
+    border-radius: 50%;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background-color: #888; /* Color of the scrollbar thumb */
+    border-radius: 5rem;
+  }
+
+  &::-webkit-scrollbar-track {
+    background-color: ${THEME.colors.background
+      .jet}; /* Color of the scrollbar track */
+    border-radius: 5rem;
+  }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background-color: #555; /* Color of the scrollbar thumb on hover */
+  }
 `;
